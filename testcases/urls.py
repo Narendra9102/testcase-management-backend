@@ -10,6 +10,9 @@ from .views import (
     TestCaseListCreateView,
     TestCaseDetailView,
     ProjectStatsView,
+    ExecuteTestCaseView,
+    ExecutionHistoryView,
+    ExecutionDetailView
 )
 
 urlpatterns = [
@@ -30,4 +33,9 @@ urlpatterns = [
     # TestCase URLs
     path('testcases/', TestCaseListCreateView.as_view(), name='testcase-list-create'),
     path('testcases/<int:pk>/', TestCaseDetailView.as_view(), name='testcase-detail'),
+
+    # Execution APIs
+    path('testcases/<int:testcase_id>/execute/', ExecuteTestCaseView.as_view(), name='execute-testcase'),
+    path('executions/', ExecutionHistoryView.as_view(), name='execution-history'),
+    path('executions/<int:execution_id>/', ExecutionDetailView.as_view(), name='execution-detail'),
 ]

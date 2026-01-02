@@ -6,13 +6,14 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.utils import timezone
-from .models import Project, TestCase, ProjectMember
+from .models import Project, TestCase, ProjectMember, TestExecution
 from .serializers import (
     ProjectSerializer,
     TestCaseSerializer,
     ProjectMemberSerializer,
     InviteMemberSerializer
 )
+from .execution import TestExecutionEngine
 
 
 def get_user_role(user):
@@ -738,3 +739,285 @@ class ProjectStatsView(APIView):
             "data": stats
         }, status=status.HTTP_200_OK)
     
+
+
+
+class ExecuteTestCaseView(APIView):
+    """
+    Execute a test case (simulation or AI-driven)
+    POST /api/testcases/{testcase_id}/execute/
+    
+    Request Body (optional):
+    {
+        "ai_config": {
+            "provider": "openai",  // or "anthropic"
+            "api_key": "sk-...",
+            "model": "gpt-4o-mini"  // optional
+        }
+    }
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @transaction.atomic
+    def post(self, request, testcase_id):
+        """Execute test case"""
+        user_role = get_user_role(request.user)
+        
+        # Verify access to testcase
+        if user_role == 2:  # Organization
+            testcase = get_object_or_404(
+                TestCase,
+                id=testcase_id,
+                project__created_by=request.user,
+                is_active=True
+            )
+        elif user_role == 3:  # Member
+            testcase = get_object_or_404(TestCase, id=testcase_id, is_active=True)
+            
+            membership = ProjectMember.objects.filter(
+                project=testcase.project,
+                user=request.user,
+                status='Accepted'
+            ).first()
+            
+            if not membership:
+                return Response({
+                    "success": False,
+                    "message": "You don't have access to this test case."
+                }, status=status.HTTP_403_FORBIDDEN)
+        else:
+            return Response({
+                "success": False,
+                "message": "Invalid user role."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Create execution record
+        execution = TestExecution.objects.create(
+            testcase=testcase,
+            executed_by=request.user,
+            status='Running'
+        )
+        
+        try:
+            # Get AI config from request (optional)
+            ai_config = request.data.get('ai_config')
+            
+            # Initialize execution engine
+            engine = TestExecutionEngine(
+                testcase=testcase,
+                executed_by=request.user,
+                ai_config=ai_config
+            )
+            
+            # Execute
+            result = engine.execute()
+            
+            # Update execution record
+            execution.status = result['status']
+            execution.execution_time = result['execution_time']
+            execution.error_message = result.get('error_message')
+            execution.execution_log = result.get('execution_log')
+            execution.ai_used = result.get('ai_used', False)
+            if ai_config:
+                execution.ai_provider = ai_config.get('provider', 'unknown')
+            execution.completed_at = timezone.now()
+            execution.save()
+            
+            return Response({
+                "success": True,
+                "message": f"Test execution completed: {result['status']}",
+                "data": {
+                    "execution_id": execution.id,
+                    "testcase_title": testcase.title,
+                    "status": execution.status,
+                    "execution_time": execution.execution_time,
+                    "error_message": execution.error_message,
+                    "ai_used": execution.ai_used,
+                    "ai_provider": execution.ai_provider,
+                    "execution_log": execution.execution_log,
+                    "started_at": execution.started_at.isoformat(),
+                    "completed_at": execution.completed_at.isoformat()
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            execution.status = 'Failed'
+            execution.error_message = f"Execution engine error: {str(e)}"
+            execution.completed_at = timezone.now()
+            execution.save()
+            
+            return Response({
+                "success": False,
+                "message": "Execution failed due to system error.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ExecutionHistoryView(APIView):
+    """
+    View execution history with filters
+    GET /api/executions/?testcase_id=1&status=Passed&ai_used=true
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get execution history"""
+        user_role = get_user_role(request.user)
+        
+        # Base queryset based on user role
+        if user_role == 2:  # Organization
+            executions = TestExecution.objects.filter(
+                testcase__project__created_by=request.user
+            )
+        elif user_role == 3:  # Member
+            project_ids = ProjectMember.objects.filter(
+                user=request.user,
+                status='Accepted'
+            ).values_list('project_id', flat=True)
+            
+            executions = TestExecution.objects.filter(
+                testcase__project_id__in=project_ids
+            )
+        else:
+            return Response({
+                "success": False,
+                "message": "Invalid user role."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Apply filters
+        testcase_id = request.query_params.get('testcase_id')
+        status_filter = request.query_params.get('status')
+        ai_used = request.query_params.get('ai_used')
+        
+        if testcase_id:
+            executions = executions.filter(testcase_id=testcase_id)
+        
+        if status_filter:
+            executions = executions.filter(status=status_filter)
+        
+        if ai_used is not None:
+            ai_used_bool = ai_used.lower() == 'true'
+            executions = executions.filter(ai_used=ai_used_bool)
+        
+        # Select related data
+        executions = executions.select_related(
+            'testcase',
+            'testcase__project',
+            'executed_by'
+        ).order_by('-started_at')
+        
+        # Prepare response data
+        data = []
+        for execution in executions:
+            data.append({
+                "execution_id": execution.id,
+                "testcase": {
+                    "id": execution.testcase.id,
+                    "title": execution.testcase.title,
+                    "priority": execution.testcase.priority
+                },
+                "project": {
+                    "id": execution.testcase.project.id,
+                    "name": execution.testcase.project.name
+                },
+                "executed_by": {
+                    "id": execution.executed_by.id,
+                    "name": execution.executed_by.first_name,
+                    "email": execution.executed_by.email
+                },
+                "status": execution.status,
+                "execution_time": execution.execution_time,
+                "error_message": execution.error_message,
+                "ai_used": execution.ai_used,
+                "ai_provider": execution.ai_provider,
+                "started_at": execution.started_at.isoformat(),
+                "completed_at": execution.completed_at.isoformat() if execution.completed_at else None
+            })
+        
+        # Calculate statistics
+        stats = {
+            "total_executions": executions.count(),
+            "passed": executions.filter(status='Passed').count(),
+            "failed": executions.filter(status='Failed').count(),
+            "ai_executions": executions.filter(ai_used=True).count()
+        }
+        
+        return Response({
+            "success": True,
+            "count": len(data),
+            "statistics": stats,
+            "data": data
+        }, status=status.HTTP_200_OK)
+
+
+class ExecutionDetailView(APIView):
+    """
+    Get detailed execution information
+    GET /api/executions/{execution_id}/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, execution_id):
+        """Get single execution details"""
+        user_role = get_user_role(request.user)
+        
+        try:
+            execution = TestExecution.objects.select_related(
+                'testcase',
+                'testcase__project',
+                'executed_by'
+            ).get(id=execution_id)
+            
+            # Verify access
+            if user_role == 2:  # Organization
+                if execution.testcase.project.created_by != request.user:
+                    raise TestExecution.DoesNotExist
+                    
+            elif user_role == 3:  # Member
+                membership = ProjectMember.objects.filter(
+                    project=execution.testcase.project,
+                    user=request.user,
+                    status='Accepted'
+                ).first()
+                
+                if not membership:
+                    raise TestExecution.DoesNotExist
+            
+            return Response({
+                "success": True,
+                "data": {
+                    "execution_id": execution.id,
+                    "testcase": {
+                        "id": execution.testcase.id,
+                        "title": execution.testcase.title,
+                        "description": execution.testcase.description,
+                        "steps": execution.testcase.steps,
+                        "expected_result": execution.testcase.expected_result,
+                        "priority": execution.testcase.priority
+                    },
+                    "project": {
+                        "id": execution.testcase.project.id,
+                        "name": execution.testcase.project.name
+                    },
+                    "executed_by": {
+                        "id": execution.executed_by.id,
+                        "name": execution.executed_by.first_name,
+                        "email": execution.executed_by.email
+                    },
+                    "status": execution.status,
+                    "execution_time": execution.execution_time,
+                    "error_message": execution.error_message,
+                    "execution_log": execution.execution_log,
+                    "ai_used": execution.ai_used,
+                    "ai_provider": execution.ai_provider,
+                    "started_at": execution.started_at.isoformat(),
+                    "completed_at": execution.completed_at.isoformat() if execution.completed_at else None
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except TestExecution.DoesNotExist:
+            return Response({
+                "success": False,
+                "message": "Execution not found or access denied."
+            }, status=status.HTTP_404_NOT_FOUND)
+        

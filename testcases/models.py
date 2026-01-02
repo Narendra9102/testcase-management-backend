@@ -149,4 +149,46 @@ class TestCase(models.Model):
             models.Index(fields=['priority']),
             models.Index(fields=['is_active']),
         ]
+
+
+class TestExecution(models.Model):
+    """
+    Tracks test case execution history
+    Supports both simulated and AI-driven executions
+    """
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Running', 'Running'),
+        ('Passed', 'Passed'),
+        ('Failed', 'Failed'),
+    )
+    
+    testcase = models.ForeignKey(
+        TestCase,
+        on_delete=models.CASCADE,
+        related_name='executions'
+    )
+    executed_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='Pending'
+    )
+    execution_time = models.FloatField(null=True, blank=True)  # in seconds
+    error_message = models.TextField(null=True, blank=True)
+    execution_log = models.JSONField(null=True, blank=True)  # Stores step-by-step log
+    ai_used = models.BooleanField(default=False)  # Was AI used for this execution?
+    ai_provider = models.CharField(max_length=20, null=True, blank=True)  # openai/anthropic
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.testcase.title} - {self.status} ({self.started_at})"
+    
+    class Meta:
+        db_table = 'test_executions'
+        ordering = ['-started_at']
         
