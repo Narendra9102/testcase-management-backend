@@ -278,7 +278,10 @@ Only after **Accepted** status → access is granted.
 
 ### ✅ Create Test Case
 
-**POST** `/api/testcases/`
+```http
+POST /api/testcases/
+Authorization: Bearer <token>
+```
 
 ```json
 {
@@ -298,7 +301,10 @@ Only after **Accepted** status → access is granted.
 
 ### ✅ Get Testcases
 
-**GET** `/api/testcases/?project_id=2`
+```http
+GET /api/testcases/?project_id=2
+Authorization: Bearer <token>
+```
 
 Members only see testcases of projects they are invited to.
 
@@ -306,7 +312,10 @@ Members only see testcases of projects they are invited to.
 
 ### ✅ Update Testcase
 
-**PUT** `/api/testcases/{id}/`
+```http
+PUT /api/testcases/{id}/
+Authorization: Bearer <token>
+```
 
 ```json
 {
@@ -318,8 +327,17 @@ Members only see testcases of projects they are invited to.
 
 ### ✅ Delete Testcase
 
-Only **Contributor** role can delete testcases.
+**DELETE** `/api/testcases/{id}/`
 
+> Only users with **Contributor** role in the project can delete a testcase.
+> Organization users who own the project can also delete.
+
+**Example Request:**
+
+```http
+DELETE /api/testcases/5/
+Authorization: Bearer <token>
+```
 ---
 
 ### 🧪 Test Execution APIs (Simulation + AI-driven)
