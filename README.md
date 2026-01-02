@@ -230,7 +230,10 @@ Authorization: Bearer <access_token>
 
 ### ✅ Create Project (Admin / Organization)
 
-**POST** `/api/projects/`
+```http
+POST /api/projects/
+Authorization: Bearer <token>
+```
 
 ```json
 {
@@ -243,11 +246,13 @@ Authorization: Bearer <access_token>
 
 ## 👥 Invite Member to Project
 
-**POST** `/api/projects/invite/`
+```http
+POST /api/projects/{project_id}/invite/
+Authorization: Bearer <token>
+```
 
 ```json
 {
-  "project": 2,
   "email": "tester@test.com",
   "role_in_project": "Tester"
 }
@@ -262,12 +267,9 @@ Roles inside project:
 
 ## ✉️ Accept Invitation (Member)
 
-**POST** `/api/projects/invitations/accept/`
-
-```json
-{
-  "invitation_id": 1
-}
+```http
+POST /api/invitations/{invitation_id}/accept/
+Authorization: Bearer <token>
 ```
 
 Only after **Accepted** status → access is granted.
