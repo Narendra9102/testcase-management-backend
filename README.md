@@ -322,10 +322,90 @@ Only **Contributor** role can delete testcases.
 
 ---
 
-## 🔐 Security & Validation Rules
+### 🧪 Test Execution APIs (Simulation + AI-driven)
 
-* Backend strictly validates **role + membership**
-* Invalid access always returns **403 Forbidden**
-* Frontend bypass is impossible
-* Soft delete used for safety
+This backend now supports **running test cases** either as a **simulation** or via **AI-driven execution** using OpenAI or Anthropic.
 
+#### 1. Execute Test Case (Simulation Mode)
+
+```http
+POST /api/testcases/1/execute/
+Authorization: Bearer <token>
+
+# No request body required for simulation
+```
+
+> Runs the test case in simulation mode (80% pass, 20% fail) and logs step-by-step execution.
+
+---
+
+#### 2. Execute Test Case with OpenAI
+
+```http
+POST /api/testcases/1/execute/
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "ai_config": {
+    "provider": "openai",
+    "api_key": "sk-...",
+    "model": "gpt-4o-mini"
+  }
+}
+```
+
+> The AI analyzes the test steps, validates execution feasibility, and returns `Passed` / `Failed` with confidence, issues, and recommendations.
+
+---
+
+#### 3. Execute Test Case with Anthropic
+
+```http
+POST /api/testcases/1/execute/
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "ai_config": {
+    "provider": "anthropic",
+    "api_key": "sk-ant-...",
+    "model": "claude-sonnet-4-20250514"
+  }
+}
+```
+
+> Same as OpenAI, but uses Anthropic Claude model for AI-driven execution.
+
+---
+
+#### 4. View Execution History
+
+```http
+GET /api/executions/?testcase_id=1&status=Passed&ai_used=true
+Authorization: Bearer <token>
+```
+
+> Returns all executions matching filters: testcase ID, status, AI usage.
+
+---
+
+#### 5. Get Single Execution Details
+
+```http
+GET /api/executions/1/
+Authorization: Bearer <token>
+```
+
+> Returns detailed info for a single execution, including logs, AI analysis, timestamps, and user info.
+
+---
+
+### ⚡ Features
+
+* Simulation mode works without AI keys 
+* AI-driven execution supports **OpenAI** & **Anthropic** 
+* Step-by-step execution logs 
+* Execution statistics: total, passed, failed, AI usage 
+* Graceful fallback to simulation if AI fails 
+* Full role-based access control 
